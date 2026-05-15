@@ -428,6 +428,65 @@ fn prompt_yes_no(question: &str) -> bool {
     matches!(input.trim().to_lowercase().as_str(), "y" | "yes")
 }
 
+/// Build a `Command` for the installed `soteria-rust`, with the runtime
+/// environment (dylib search path + bundled tool paths) configured.
+fn soteria_rust_command() -> Command {
+    let pkg = package_dir();
+    let bin_dir = pkg.join("bin");
+    let lib_dir = pkg.join("lib");
+    let plugins_dir = pkg.join("plugins");
+
+    let lib_path_var = if cfg!(target_os = "macos") {
+        "DYLD_LIBRARY_PATH"
+    } else {
+        "LD_LIBRARY_PATH"
+    };
+    let existing_lib_path = env::var(lib_path_var).unwrap_or_default();
+    let new_lib_path = if existing_lib_path.is_empty() {
+        lib_dir.to_string_lossy().to_string()
+    } else {
+        format!("{}:{}", lib_dir.display(), existing_lib_path)
+    };
+
+    let mut cmd = Command::new(bin_dir.join("soteria-rust"));
+    cmd.env(lib_path_var, &new_lib_path)
+        .env("SOTERIA_Z3_PATH", bin_dir.join("z3"))
+        .env("SOTERIA_OBOL_PATH", bin_dir.join("obol"))
+        .env("SOTERIA_CHARON_PATH", bin_dir.join("charon"))
+        .env("SOTERIA_RUST_PLUGINS", &plugins_dir);
+    cmd
+}
+
+/// Pre-build the soteria-rust plugin crate so the first real run doesn't pay
+/// the compilation cost. Without this, `soteria-rust` builds the plugins
+/// lazily on first `exec`.
+fn build_plugins() {
+    let sp = spinner("Building plugins…");
+    let output = soteria_rust_command().arg("build-plugins").output();
+    sp.finish_and_clear();
+
+    match output {
+        Ok(out) if out.status.success() => {
+            ok("Plugins built.");
+        }
+        Ok(out) => {
+            let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
+            fail(&format!(
+                "Building plugins failed (exit {}){}",
+                out.status.code().unwrap_or(1),
+                if stderr.is_empty() {
+                    String::new()
+                } else {
+                    format!(": {stderr}")
+                }
+            ));
+        }
+        Err(e) => {
+            fail(&format!("Failed to run soteria-rust: {e}"));
+        }
+    }
+}
+
 fn check_toolchain() {
     let sp = spinner("Checking that the right toolchain is installed…");
 
@@ -495,6 +554,7 @@ fn cmd_setup(local_path: Option<&str>) {
         install_from_local(local_path);
         println!();
         check_toolchain();
+        build_plugins();
         println!();
         ok(&format!(
             "{}",
@@ -568,6 +628,7 @@ fn cmd_setup(local_path: Option<&str>) {
 
     println!();
     check_toolchain();
+    build_plugins();
     println!();
     ok(&format!("{}", "Soteria installed successfully.".bold()));
     println!();
@@ -639,31 +700,10 @@ fn main() {
         process::exit(1);
     }
 
-    let bin_dir = pkg.join("bin");
-    let lib_dir = pkg.join("lib");
-    let plugins_dir = pkg.join("plugins");
-
-    let lib_path_var = if cfg!(target_os = "macos") {
-        "DYLD_LIBRARY_PATH"
-    } else {
-        "LD_LIBRARY_PATH"
-    };
-    let existing_lib_path = env::var(lib_path_var).unwrap_or_default();
-    let new_lib_path = if existing_lib_path.is_empty() {
-        lib_dir.to_string_lossy().to_string()
-    } else {
-        format!("{}:{}", lib_dir.display(), existing_lib_path)
-    };
-
-    let status = Command::new(&soteria_rust_bin)
+    let status = soteria_rust_command()
         .arg("exec")
         .arg(".")
         .args(args)
-        .env(lib_path_var, &new_lib_path)
-        .env("SOTERIA_Z3_PATH", bin_dir.join("z3"))
-        .env("SOTERIA_OBOL_PATH", bin_dir.join("obol"))
-        .env("SOTERIA_CHARON_PATH", bin_dir.join("charon"))
-        .env("SOTERIA_RUST_PLUGINS", &plugins_dir)
         .status();
 
     match status {
