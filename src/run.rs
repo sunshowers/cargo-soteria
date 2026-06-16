@@ -135,6 +135,14 @@ impl Counts {
 /// Exit code: `0` all passed · `1` some failed · `2` some crashed/errored ·
 /// `130` interrupted.
 pub fn run(passthrough: Vec<String>, jobs: usize) -> ! {
+    // A single worker gains nothing from discovery + fan-out: hand off to
+    // `soteria-rust exec . [args]`, which already runs every test itself on one
+    // thread, streaming its own output directly. (`-j 1`, or the default on
+    // machines with few CPUs.)
+    if jobs == 1 {
+        run_serial(&passthrough);
+    }
+
     let tests = discover_tests(&passthrough);
     let total = tests.len();
     if total == 0 {
@@ -258,6 +266,21 @@ pub fn run(passthrough: Vec<String>, jobs: usize) -> ! {
         0
     };
     std::process::exit(code);
+}
+
+/// `-j 1`: skip discovery and fan-out — run `soteria-rust exec . [args]`, which
+/// analyses every test on a single thread and streams its own output directly.
+/// Diverges.
+fn run_serial(passthrough: &[String]) -> ! {
+    let status = soteria_rust_command()
+        .arg("exec")
+        .arg(".")
+        .args(passthrough)
+        .status();
+    match status {
+        Ok(status) => std::process::exit(status.code().unwrap_or(1)),
+        Err(e) => fail(&format!("Failed to execute soteria-rust: {e}")),
+    }
 }
 
 // ── discovery ────────────────────────────────────────────────────────────────
