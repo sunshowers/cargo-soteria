@@ -61,32 +61,12 @@ fn run_analysis(soteria_home: &PathBuf) {
     );
 }
 
-/// Run analysis on the fixture, tolerating a published nightly that predates
-/// `compile --list-tests`: in that case discovery fails, but it must do so with
-/// the actionable "update" hint rather than crashing.
-fn run_analysis_or_old_binary_hint(soteria_home: &PathBuf) {
-    let out = Command::new(cargo_soteria_bin())
-        .current_dir(fixture_dir())
-        .env("SOTERIA_HOME", soteria_home)
-        .output()
-        .expect("failed to spawn cargo-soteria");
-    if out.status.success() {
-        return;
-    }
-    let stderr = String::from_utf8_lossy(&out.stderr);
-    assert!(
-        stderr.contains("compile --list-tests"),
-        "analysis failed, and not because the nightly is too old:\n  status: {}\n  stderr: {stderr}",
-        out.status
-    );
-}
-
 /// Downloads the nightly release from GitHub and runs analysis on the fixture crate.
 #[test]
 fn online_install_and_run() {
     let home = fresh_soteria_home();
     run_setup(&[], &home);
-    run_analysis_or_old_binary_hint(&home);
+    run_analysis(&home);
     fs::remove_dir_all(&home).ok();
 }
 

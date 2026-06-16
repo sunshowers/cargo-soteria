@@ -283,10 +283,9 @@ fn discover_tests(passthrough: &[String]) -> Vec<String> {
     let stderr = String::from_utf8_lossy(&output.stderr);
     if !output.status.success() {
         fail(&format!(
-            "Test discovery failed (exit {}).\n{}\n\nThis usually means the installed soteria-rust predates `compile --list-tests`. Run `{}` to update it.",
+            "Test discovery failed (exit {}).\n{}",
             output.status.code().unwrap_or(-1),
             stderr.trim(),
-            "cargo soteria setup".cyan().bold(),
         ));
     }
     fail(&format!(
