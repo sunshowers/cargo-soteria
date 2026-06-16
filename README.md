@@ -11,6 +11,7 @@ A Cargo subcommand for running [soteria-rust](https://github.com/soteria-tools/s
 ```bash
 cargo install soteria
 cargo soteria setup # Installs binaries
+# Run the setup command again to install the latest nightly release any time.
 ```
 
 The setup installs the latest nightly release (~27MB compressed, ~85MB uncompressed) with all necessary tools.

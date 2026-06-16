@@ -4,6 +4,11 @@ version = "0.1.0"
 edition = "2021"
 description = "Cargo subcommand for running soteria-rust analysis"
 license = "Apache-2.0"
+repository = "https://github.com/soteria-tools/cargo-soteria"
+homepage = "https://soteria-tools.com"
+readme = "README.md"
+keywords = ["soteria", "symbolic-execution", "verification", "cargo-subcommand", "testing"]
+categories = ["development-tools::testing", "command-line-utilities"]
 
 [[bin]]
 name = "cargo-soteria"
