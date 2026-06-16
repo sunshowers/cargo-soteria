@@ -10,22 +10,17 @@ A Cargo subcommand for running [soteria-rust](https://github.com/soteria-tools/s
 
 ```bash
 cargo install soteria
+cargo soteria setup # Installs binaries
 ```
 
-The binary is ~27MB and contains a compressed package (~85MB uncompressed) with all necessary tools:
-- `soteria-rust` — the main analysis binary
-- `z3` — SMT solver
-- `obol` and `charon` — Rust IR frontends
-- Verification plugins (kani, miri, rusteria)
-
-On first run, the package is automatically extracted to `~/.soteria/<version>/`.
+The setup installs the latest nightly release (~27MB compressed, ~85MB uncompressed) with all necessary tools.
 
 ## Uninstallation
 
 To uninstall (including extracted packages in `~/.soteria/`):
 
 ```bash
-soteria-cleanup
+cargo soteria unsetup
 cargo uninstall soteria
 ```
 
@@ -40,36 +35,39 @@ cd your-rust-project/
 cargo soteria --kani
 ```
 
-This is equivalent to running:
-```bash
-soteria-rust cargo . --kani
-```
+`cargo soteria` discovers every symbolic test in the crate and analyses them in
+**parallel** — one `soteria-rust` process per test — streaming each result as it
+finishes. All other arguments (e.g. `--kani`) are forwarded to the workers.
 
-All arguments after `cargo soteria` are forwarded to `soteria-rust`.
+Use `-j`/`--jobs` to control how many tests run at once (default: a quarter of
+the available CPUs), and press Ctrl-C to stop — every running analysis is killed:
+
+```bash
+cargo soteria -j 8 --kani
+```
 
 ### Common Options
 
+- `-j, --jobs <N>` — Number of tests to analyse concurrently (default: CPUs / 4)
 - `--kani` — Use Kani verification harnesses
-- `--miri` — Use Miri compatibility mode
-- `--filter=<pattern>` — Filter test functions by regex
-- `--help` — Show full soteria-rust help
+- `--filter=<pattern>` — Only analyse tests whose name matches the regex
 
 See `cargo soteria --help` for all available options.
 
 ## Example Test
 
-Create a simple verification test using the Kani API:
+Create a simple verification test using the Soteria API:
 
 ```rust
 // src/lib.rs
 
-#[kani::proof]
+#[soteria::test]
 fn verify_addition() {
-    let a: u32 = kani::any();
-    let b: u32 = kani::any();
+    let a: u32 = soteria::nondet_bytes();
+    let b: u32 = soteria::nondet_bytes();
     
-    kani::assume(a < 1000);
-    kani::assume(b < 1000);
+    soteria::assume(a < 1000);
+    soteria::assume(b < 1000);
     
     let result = a + b;
     assert!(result >= a);
@@ -77,19 +75,30 @@ fn verify_addition() {
 }
 ```
 
+Soteria can also run existing Kani harnesses using:
+```
+cargo soteria --kani
+```
+
 Run the analysis:
 
 ```bash
-cargo soteria --kani
+cargo soteria
 ```
 
 Output:
 ```
-Compiling... done in 3.45s
-note: verify_addition: done in 0.18s, ran 2 branches
-PC 1: (V|1| <u 0x000003e8) /\ (V|2| <u 0x000003e8)
-PC 2: ...
+  Soteria running 1 test · 1 worker
+
+  ✓ verify_addition  0.21s
+
+  ── Summary ──────────────────────────
+  1 passed   in 0.2s
 ```
+
+When a test fails or the analyzer crashes, its diagnostics are printed inline
+under the result, and the run finishes with a list of the failing tests and a
+non-zero exit code (`1` if any failed, `2` if any crashed, `130` if interrupted).
 
 ## Docker
 
@@ -139,7 +148,7 @@ The package structure allows easy addition of more platforms. Each architecture-
 
 3. **First run**: On first execution, the binary extracts the package to `~/.soteria/<version>/` and sets executable permissions.
 
-4. **Every run**: The binary sets up required environment variables and executes `soteria-rust cargo .` with your arguments.
+4. **Every run**: The binary sets up the required environment variables, discovers the crate's tests (`soteria-rust compile --list-tests`), and analyses them in parallel — one `soteria-rust exec` process per test, with results streamed as they finish (see `src/run.rs`).
 
 ## Environment Variables
 
@@ -166,7 +175,10 @@ cargo-soteria/
 │           ├── lib/    # Dynamic libraries (libgmp, etc.)
 │           └── plugins/# Verification API crates (kani, miri, rusteria)
 └── src/
-    └── main.rs         # Extracts package, sets env vars, execs soteria-rust
+    ├── main.rs         # CLI dispatch, setup/unsetup, install, env setup
+    ├── run.rs          # Parallel test runner (-j/--jobs, Ctrl-C teardown)
+    ├── help.rs         # `cargo soteria --help` rendering
+    └── cleanup.rs      # the `soteria-cleanup` binary
 ```
 
 ## Adding New Architectures

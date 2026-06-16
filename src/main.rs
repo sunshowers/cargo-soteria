@@ -11,6 +11,7 @@ use std::time::Duration;
 use zip::ZipArchive;
 
 mod help;
+mod run;
 
 /// Version of this crate, used as the install subdirectory under ~/.soteria/
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -681,7 +682,8 @@ fn main() {
         return;
     }
 
-    // Default: run soteria-rust, erroring if not installed
+    // Default path: discover the crate's tests and analyse them in parallel.
+    // The toolchain must be installed first.
     let pkg = package_dir();
     let soteria_rust_bin = pkg.join("bin").join("soteria-rust");
 
@@ -694,18 +696,40 @@ fn main() {
         process::exit(1);
     }
 
-    let status = soteria_rust_command()
-        .arg("exec")
-        .arg(".")
-        .args(args)
-        .status();
+    let (jobs, passthrough) = parse_jobs(args);
+    run::run(passthrough, jobs);
+}
 
-    match status {
-        Ok(status) => process::exit(status.code().unwrap_or(1)),
-        Err(e) => {
-            eprintln!("{} Failed to execute soteria-rust: {e}", "✗".red().bold());
-            eprintln!("  Binary: {}", soteria_rust_bin.display());
-            process::exit(1);
+/// Pull `-j`/`--jobs` out of the forwarded args; everything else is passed
+/// through to soteria-rust unchanged. Accepts `-j N`, `-jN`, `--jobs N`, and
+/// `--jobs=N`.
+fn parse_jobs(args: &[String]) -> (usize, Vec<String>) {
+    let mut jobs = run::default_jobs();
+    let mut rest = Vec::new();
+    let mut i = 0;
+    let parse = |a: &str, v: &str| -> usize {
+        v.parse::<usize>()
+            .unwrap_or_else(|_| fail(&format!("{a} requires a positive integer argument")))
+            .max(1)
+    };
+    while i < args.len() {
+        let a = &args[i];
+        if a == "-j" || a == "--jobs" {
+            let v = args
+                .get(i + 1)
+                .unwrap_or_else(|| fail(&format!("{a} requires a positive integer argument")));
+            jobs = parse(a, v);
+            i += 2;
+        } else if let Some(v) = a.strip_prefix("--jobs=") {
+            jobs = parse("--jobs", v);
+            i += 1;
+        } else if a.len() > 2 && a.starts_with("-j") {
+            jobs = parse("-j", &a[2..]);
+            i += 1;
+        } else {
+            rest.push(a.clone());
+            i += 1;
         }
     }
+    (jobs, rest)
 }

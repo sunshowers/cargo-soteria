@@ -1,4 +1,6 @@
 /target
 scripts/__pycache__/
 tests/fixtures/simple-crate/target
+tests/fixtures/many-tests/target
 *.llbc.json
+*.ullbc

@@ -14,8 +14,15 @@ use crate::{info, package_dir, soteria_rust_command, VERSION};
 /// (uppercase section header, 7-space indented bodies).
 const COMMANDS_SECTION: &str = "\
 COMMANDS
-       With no subcommand, cargo soteria analyses the crate in the current
-       directory. The following management subcommands are also available:
+       cargo soteria discovers the crate's symbolic tests and runs them in
+       parallel — one soteria-rust process per test, with results streamed as
+       each finishes. The following options and management subcommands are
+       also available:
+
+       -j N, --jobs N
+           Number of tests to analyse concurrently. Defaults to a quarter of
+           the available CPUs. Press Ctrl-C to stop; all running analyses are
+           killed.
 
        setup [--local PATH]
            Download and install the Soteria toolchain into ~/.soteria. With
@@ -67,11 +74,12 @@ fn print_help_offline() {
 Symbolic execution for Rust, powered by Soteria.
 
 {usage}
-    cargo soteria [OPTIONS]               Analyse the crate in the current directory
+    cargo soteria [OPTIONS]               Discover & analyse the crate's tests in parallel
     cargo soteria setup [--local PATH]    Download & install the Soteria toolchain
     cargo soteria unsetup                 Remove the installed toolchain
 
 {options}
+    -j, --jobs N                          Tests to analyse concurrently (default: CPUs / 4)
     -h, --help                            Show this help",
         name = "cargo-soteria".bold(),
         version = VERSION,
@@ -100,7 +108,10 @@ fn rebrand_help(raw: &str) -> String {
             .replace("soteria-rust exec", "cargo soteria")
             .replace("soteria-rust", "cargo soteria")
             // SYNOPSIS: the path is always "." so hide the PATH argument.
-            .replace("cargo soteria [OPTION]\u{2026} PATH", "cargo soteria [OPTION]\u{2026}")
+            .replace(
+                "cargo soteria [OPTION]\u{2026} PATH",
+                "cargo soteria [OPTION]\u{2026}",
+            )
     };
 
     let mut out = String::new();

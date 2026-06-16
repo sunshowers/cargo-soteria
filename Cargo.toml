@@ -25,3 +25,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 indicatif = "0.17"
 colored = "2"
+# Parallel test runner:
+ctrlc = "3"        # install a Ctrl-C handler to tear down running workers
+libc = "0.2"       # killpg(2) to SIGKILL each worker's process group
+tempfile = "3"     # per-test merged stdout/stderr capture files
