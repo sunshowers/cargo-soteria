@@ -10,6 +10,8 @@ use std::process::{self, Command};
 use std::time::Duration;
 use zip::ZipArchive;
 
+mod help;
+
 /// Version of this crate, used as the install subdirectory under ~/.soteria/
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
@@ -660,6 +662,11 @@ fn main() {
     };
 
     // Dispatch subcommands
+    if args.iter().any(|a| a == "-h" || a == "--help") {
+        help::print_help();
+        return;
+    }
+
     if args.first().map(|s| s.as_str()) == Some("setup") {
         let local_path = args
             .windows(2)
