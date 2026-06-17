@@ -50,8 +50,7 @@ cargo-soteria/
 ├── src/
 │   ├── main.rs             # CLI dispatch, setup/unsetup, download & install, env setup
 │   ├── run.rs              # parallel test runner (-j/--jobs, Ctrl-C teardown)
-│   ├── help.rs             # `cargo soteria --help` rendering
-│   └── cleanup.rs          # the `soteria-cleanup` binary
+│   └── help.rs             # `cargo soteria --help` rendering
 └── tests/
     ├── integration.rs      # end-to-end + deterministic (fake-shim) tests
     └── fixtures/

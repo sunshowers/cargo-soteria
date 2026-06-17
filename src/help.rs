@@ -76,7 +76,7 @@ Symbolic execution for Rust, powered by Soteria.
 {usage}
     cargo soteria [OPTIONS]               Discover & analyse the crate's tests in parallel
     cargo soteria setup [--local PATH]    Download & install the Soteria toolchain
-    cargo soteria unsetup                 Remove the installed toolchain
+    cargo soteria unsetup                 Remove the installed toolchain (asks first)
 
 {options}
     -j, --jobs N                          Tests to analyse concurrently (default: CPUs / 4)

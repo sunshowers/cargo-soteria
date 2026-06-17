@@ -632,21 +632,98 @@ fn cmd_setup(local_path: Option<&str>) {
 // ── unsetup command ───────────────────────────────────────────────────────────
 
 fn cmd_unsetup() {
-    let dest = package_dir();
+    let base = soteria_base_dir();
 
-    if !dest.exists() {
-        info("Soteria is not set up.");
+    if !base.exists() {
+        info("Soteria is not set up — nothing to remove.");
         return;
     }
 
-    fs::remove_dir_all(&dest).unwrap_or_else(|e| {
-        fail(&format!("Failed to remove '{}': {e}", dest.display()));
+    let size = get_dir_size(&base)
+        .map(format_size)
+        .unwrap_or_else(|_| "unknown".to_string());
+
+    println!();
+    info(&format!(
+        "Found Soteria install at {}",
+        base.display().to_string().cyan()
+    ));
+    info(&format!("Total size on disk: {}", size.bold()));
+
+    // List the installed versions, flagging the one this binary manages.
+    if let Ok(entries) = fs::read_dir(&base) {
+        let mut versions: Vec<String> = entries
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().is_dir())
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+        versions.sort();
+        if !versions.is_empty() {
+            println!();
+            println!("  Installed versions:");
+            for v in &versions {
+                let marker = if v == VERSION {
+                    format!(" {}", "(current)".dimmed())
+                } else {
+                    String::new()
+                };
+                println!("    {} {}{}", "-".dimmed(), v, marker);
+            }
+        }
+    }
+    println!();
+
+    if !prompt_yes_no(&format!(
+        "Remove {} and everything under it? [y/N]",
+        base.display()
+    )) {
+        info("Cancelled — nothing was removed.");
+        return;
+    }
+
+    fs::remove_dir_all(&base).unwrap_or_else(|e| {
+        fail(&format!("Failed to remove '{}': {e}", base.display()));
     });
 
+    println!();
     ok(&format!(
-        "Soteria uninstalled  (removed {}).",
-        dest.display()
+        "Soteria uninstalled — freed {} ({}).",
+        size.bold(),
+        base.display()
     ));
+}
+
+/// Recursively sum the size of every regular file under `path`.
+fn get_dir_size(path: &Path) -> io::Result<u64> {
+    let mut total = 0;
+    if path.is_dir() {
+        for entry in fs::read_dir(path)? {
+            let entry = entry?;
+            let metadata = entry.metadata()?;
+            if metadata.is_dir() {
+                total += get_dir_size(&entry.path())?;
+            } else {
+                total += metadata.len();
+            }
+        }
+    }
+    Ok(total)
+}
+
+fn format_size(bytes: u64) -> String {
+    const KB: u64 = 1024;
+    const MB: u64 = KB * 1024;
+    const GB: u64 = MB * 1024;
+
+    if bytes >= GB {
+        format!("{:.2} GB", bytes as f64 / GB as f64)
+    } else if bytes >= MB {
+        format!("{:.2} MB", bytes as f64 / MB as f64)
+    } else if bytes >= KB {
+        format!("{:.2} KB", bytes as f64 / KB as f64)
+    } else {
+        format!("{bytes} bytes")
+    }
 }
 
 // ── main ──────────────────────────────────────────────────────────────────────

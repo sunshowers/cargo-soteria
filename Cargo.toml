@@ -20,10 +20,6 @@ categories = ["development-tools::testing", "command-line-utilities"]
 name = "cargo-soteria"
 path = "src/main.rs"
 
-[[bin]]
-name = "soteria-cleanup"
-path = "src/cleanup.rs"
-
 [package.metadata]
 # Pre-built soteria-rust binaries are currently only available for macOS on
 # Apple Silicon (macos/aarch64). The build script enforces this at compile time.

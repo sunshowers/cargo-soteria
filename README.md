@@ -1,10 +1,10 @@
-# cargo-soteria
+# Soteria
 
-A Cargo subcommand for running [soteria-rust](https://github.com/soteria-tools/soteria) analysis on Rust projects.
+A Cargo subcommand for running [Soteria](https://github.com/soteria-tools/soteria) analysis on Rust projects.
 
 ## Overview
 
-`cargo-soteria` provides a convenient way to run soteria symbolic execution on your Rust crates. `cargo soteria setup` downloads pre-built binaries of soteria-rust and all its dependencies, so you don't need to install OCaml or build the tool from source.
+`cargo-soteria` provides a convenient way to run soteria symbolic execution on your Rust crates. `cargo soteria setup` downloads pre-built binaries of Soteria and all its dependencies, so you don't need to install OCaml or build the tool from source.
 
 ## Installation
 
@@ -25,7 +25,7 @@ cargo soteria unsetup
 cargo uninstall soteria
 ```
 
-The `soteria-cleanup` utility will show you what will be removed and ask for confirmation before deleting anything.
+`cargo soteria unsetup` will show you what will be removed (location, total size, and installed versions) and ask for confirmation before deleting anything.
 
 ## Usage
 
@@ -36,12 +36,12 @@ cd your-rust-project/
 cargo soteria
 ```
 
-`cargo soteria` discovers every symbolic test in the crate and analyses them in
-**parallel** — one `soteria-rust` process per test — streaming each result as it
+`cargo soteria` discovers every symbolic test in the crate and analyses them in parallel,
+(one `soteria-rust` process per test) streaming each result as it
 finishes. All other arguments are forwarded to the workers.
 
 Use `-j`/`--jobs` to control how many tests run at once (default: a quarter of
-the available CPUs), and press Ctrl-C to stop — every running analysis is killed:
+the available CPUs).
 
 ```bash
 cargo soteria -j 8
@@ -49,15 +49,15 @@ cargo soteria -j 8
 
 ### Common Options
 
-- `-j, --jobs <N>` — Number of tests to analyse concurrently (default: CPUs / 4)
-- `--kani` — Use Kani verification harnesses
-- `--filter=<pattern>` — Only analyse tests whose name matches the regex
+- `-j, --jobs <N>`: Number of tests to analyse concurrently (default: CPUs / 4)
+- `--filter=<pattern>`: Only analyse tests whose name matches the regex
+- `--kani`: Compatibility layer with Kani harnesses
 
 See `cargo soteria --help` for all available options.
 
 ## Example Test
 
-Create a simple verification test using the Soteria API:
+Create a simple symbolic test using the Soteria API:
 
 ```rust
 // src/lib.rs
@@ -104,7 +104,7 @@ non-zero exit code (`1` if any failed, `2` if any crashed, `130` if interrupted)
 ## Docker
 
 A pre-built image is published to GitHub Container Registry with soteria-rust
-already baked in — no `cargo install`, no `setup` step:
+already baked in:
 
 ```bash
 docker run --rm -v "$PWD:/workspace" \
@@ -113,7 +113,7 @@ docker run --rm -v "$PWD:/workspace" \
 
 The crate in the current directory is mounted at `/workspace` (the image's
 working directory). Any arguments after the image name are forwarded to
-soteria-rust, exactly like `cargo soteria <args>`.
+`cargo soteria`.
 
 **Tags:**
 
