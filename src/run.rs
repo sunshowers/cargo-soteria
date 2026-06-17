@@ -507,9 +507,7 @@ fn install_interrupt_handler(interrupted: Arc<AtomicBool>, registry: Arc<Mutex<H
 fn worker_style() -> ProgressStyle {
     ProgressStyle::with_template("    {spinner:.cyan} {wide_msg} {elapsed:>4}")
         .unwrap()
-        .tick_strings(&[
-            "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏", "·",
-        ])
+        .tick_strings(&["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏", "·"])
 }
 
 fn main_style() -> ProgressStyle {
@@ -584,7 +582,10 @@ fn print_summary(
     println!();
     println!("  {}", "── Summary ──────────────────────────".dimmed());
 
-    let mut line = vec![format!("{} passed", counts.passed).green().bold().to_string()];
+    let mut line = vec![format!("{} passed", counts.passed)
+        .green()
+        .bold()
+        .to_string()];
     if counts.failed > 0 {
         line.push(format!("{} failed", counts.failed).red().bold().to_string());
     }
