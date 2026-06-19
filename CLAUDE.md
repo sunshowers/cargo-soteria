@@ -25,14 +25,19 @@ Integration tests live in `tests/integration.rs` and exercise the full binary ag
 # Online test — downloads from the GitHub nightly release (~25 MB):
 cargo test --test integration online_install_and_run -- --nocapture
 
+# End-to-end nextest test — real cargo-nextest drives the symbolic tests through
+# the custom runner (installs the toolchain online; skipped if cargo-nextest is
+# absent):
+cargo test --test integration nextest_online_install_and_run -- --nocapture
+
 # Local test — requires packages/soteria-rust/ to be pre-built in a soteria checkout:
 SOTERIA_LOCAL_PATH=/path/to/soteria cargo test --test integration local_install_and_run -- --nocapture
 
-# Run both:
+# Run all:
 SOTERIA_LOCAL_PATH=/path/to/soteria cargo test --test integration -- --nocapture
 ```
 
-Each test installs into a fresh temp directory via `SOTERIA_HOME` so it never touches `~/.soteria`. `local_install_and_run` is silently skipped when `SOTERIA_LOCAL_PATH` is not set (it points at a separate checkout of the upstream soteria repo).
+Each test installs into a fresh temp directory via `SOTERIA_HOME` so it never touches `~/.soteria`. `local_install_and_run` is silently skipped when `SOTERIA_LOCAL_PATH` is not set (it points at a separate checkout of the upstream soteria repo). `nextest_online_install_and_run` runs `cargo soteria nextest run` against an isolated copy of the simple-crate fixture and asserts both entry points pass through the real cargo-nextest handshake.
 
 Two further tests need neither the network nor a real soteria-rust: `parallel_classifies_and_survives_crashes` and `interrupt_kills_running_workers` install a fake `soteria-rust` (`tests/fixtures/fake-soteria-rust.sh`) into a temp `SOTERIA_HOME` and drive the parallel runner deterministically — verifying outcome classification, crash-resilience, and that Ctrl-C leaves no worker processes alive. The parallel runner is exercised end-to-end against the real analyzer by two fixture crates: `tests/fixtures/many-tests/` (~30 tests, a mix of passing and failing) and `tests/fixtures/many-slow-tests/` (used by the Docker smoke test for sustained-load behavior).
 
@@ -52,7 +57,7 @@ Two further tests need neither the network nor a real soteria-rust: `parallel_cl
 
 **Runtime flow when a user runs `cargo soteria [args...]`:**
 
-1. Cargo invokes `cargo-soteria soteria [args...]`; `main()` strips the `soteria` word Cargo inserts.
+1. Cargo invokes `cargo-soteria soteria [args...]`; `main()` strips the `soteria` word Cargo inserts, then dispatches on the first arg. Argument parsing is clap-derive (`RunArgs`, `SetupArgs` in `src/main.rs`); the default (no-subcommand) path owns only `-j`/`--jobs` and forwards everything else verbatim to `soteria-rust exec .` via a `trailing_var_arg` bag, so our own flags must precede the forwarded ones. `nextest`/`__nextest-runner` are dispatched before parsing and forward raw args.
 2. If the first arg is `setup`, calls `cmd_setup()`:
    - Hits the GitHub API for `soteria-tools/soteria` releases at tag `nightly`
    - Downloads the platform asset chosen by `expected_asset_name()`:
@@ -141,8 +146,9 @@ The single list-phase compile populates the crate's ULLBC cache; per-test
 `--no-compile` runs reuse it (the same trick the built-in runner relies on).
 `run::parse_test_list` and `run::anchored_filter` are shared with `src/run.rs`.
 The protocol translation is covered without nextest/the real analyzer by the
-`nextest_runner_*` tests in `tests/integration.rs`, which drive the hidden
-runner against the fake soteria-rust.
+`nextest_runner_*` tests in `tests/integration.rs` (which drive the hidden
+runner against the fake soteria-rust), and the full real handshake by
+`nextest_online_install_and_run`.
 
 ### Key constants (`src/main.rs`)
 
@@ -200,9 +206,12 @@ cannot be read-only. Users needing host-UID ownership can override with
 `docker run --user $(id -u):$(id -g)`.
 
 **CI/CD workflows** (in `.github/workflows/`):
-- `ci.yml` — on every push/PR to `master`: `cargo check`, `cargo clippy -D
-  warnings`, `cargo fmt --check`, plus the `online_install_and_run` integration
-  test on a `macos-latest` × `ubuntu-latest` matrix.
+- `ci.yml` — on every push/PR to `master`: a `check` job (`cargo check`, `cargo
+  clippy -D warnings`, `cargo fmt --check`, `cargo test --bins` for the unit
+  tests), and an `integration` job on a `macos-latest` × `ubuntu-latest` matrix
+  that installs cargo-nextest (`taiki-e/install-action@nextest`) and runs the
+  full `tests/integration.rs` suite — including the online install and the
+  end-to-end nextest handshake.
 - `docker.yml` — builds + smoke-tests the image on every push/PR to `master`.
   Never publishes.
 - `nightly.yml` — daily (03:00 UTC, after the soteria nightly release at 02:00)

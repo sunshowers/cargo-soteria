@@ -8,7 +8,7 @@ on:
 
 jobs:
   check:
-    name: Check & Clippy & Fmt
+    name: Check & Clippy & Fmt & Unit tests
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -16,9 +16,12 @@ jobs:
       - run: cargo check
       - run: cargo clippy -- -D warnings
       - run: cargo fmt --check
+      # Unit tests (arg parsing, runner classification, nextest helpers) — no
+      # network or installed toolchain required.
+      - run: cargo test --bins
 
   integration:
-    name: Integration test (online install)
+    name: Integration tests (online install + nextest)
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -26,7 +29,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - name: Run online integration test
-        run: cargo test --test integration online_install_and_run -- --nocapture
+      # cargo-nextest is needed for the end-to-end nextest handshake test
+      # (nextest_online_install_and_run); it skips itself if absent.
+      - uses: taiki-e/install-action@nextest
+      - name: Run integration tests
+        run: cargo test --test integration -- --nocapture
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

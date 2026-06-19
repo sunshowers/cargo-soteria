@@ -11,7 +11,7 @@
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command};
+use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::{Duration, Instant};
 
@@ -87,6 +87,97 @@ fn local_install_and_run() {
     run_setup(&["--local", &local_path], &home);
     run_analysis(&home);
     fs::remove_dir_all(&home).ok();
+}
+
+fn nextest_available() -> bool {
+    Command::new("cargo")
+        .args(["nextest", "--version"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
+/// Copy a fixture crate into a fresh temp dir (excluding any stale `target/`),
+/// so a native cargo/nextest build doesn't race the shared fixture's build dir.
+fn copy_fixture_to_temp(name: &str) -> PathBuf {
+    let src = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures")
+        .join(name);
+    let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+    let dst = std::env::temp_dir().join(format!("soteria-fixture-{}-{}", std::process::id(), n));
+    copy_dir_excluding_target(&src, &dst);
+    dst
+}
+
+fn copy_dir_excluding_target(src: &Path, dst: &Path) {
+    fs::create_dir_all(dst).expect("create fixture copy dir");
+    for entry in fs::read_dir(src).expect("read fixture dir") {
+        let entry = entry.expect("read fixture entry");
+        if entry.file_name() == "target" {
+            continue;
+        }
+        let s = entry.path();
+        let d = dst.join(entry.file_name());
+        if s.is_dir() {
+            copy_dir_excluding_target(&s, &d);
+        } else {
+            fs::copy(&s, &d).expect("copy fixture file");
+        }
+    }
+}
+
+/// End-to-end: install the real toolchain, then drive `cargo soteria nextest
+/// run` through the *real* cargo-nextest against the simple-crate fixture (two
+/// always-passing tests). Verifies the full custom-runner handshake — nextest's
+/// list and run phases both routed through our `__nextest-runner` into
+/// soteria-rust. Skipped when cargo-nextest isn't installed.
+#[test]
+fn nextest_online_install_and_run() {
+    if !nextest_available() {
+        println!("Skipping: cargo-nextest not installed");
+        return;
+    }
+    let home = fresh_soteria_home();
+    run_setup(&[], &home);
+
+    let crate_dir = copy_fixture_to_temp("simple-crate");
+    let out = Command::new(cargo_soteria_bin())
+        .args(["nextest", "run"])
+        .current_dir(&crate_dir)
+        .env("SOTERIA_HOME", &home)
+        .env("NO_COLOR", "1")
+        .output()
+        .expect("run cargo soteria nextest run");
+
+    // nextest writes its UI to stderr; the runner streams soteria to both.
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&out.stdout),
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    assert!(
+        out.status.success(),
+        "`cargo soteria nextest run` failed ({}):\n{combined}",
+        out.status
+    );
+    // Both #[soteria::test] entry points were discovered (via our list phase)…
+    for t in ["double_negation_is_identity", "abs_diff_is_symmetric"] {
+        assert!(
+            combined.contains(t),
+            "missing test {t} in output:\n{combined}"
+        );
+    }
+    // …and both ran and passed (run phase).
+    assert!(
+        combined.contains("2 tests run") && combined.contains("2 passed"),
+        "expected a 2-passed summary:\n{combined}"
+    );
+
+    fs::remove_dir_all(&home).ok();
+    fs::remove_dir_all(&crate_dir).ok();
 }
 
 // ── deterministic parallel-runner tests (no network, no real soteria) ─────────

@@ -1,3 +1,4 @@
+use clap::Parser;
 use colored::Colorize;
 use indicatif::{ProgressBar, ProgressStyle};
 use serde::{Deserialize, Serialize};
@@ -727,100 +728,146 @@ fn format_size(bytes: u64) -> String {
     }
 }
 
+// ── CLI definitions ───────────────────────────────────────────────────────────
+
+/// The default action (no subcommand): run the crate's discovered tests in
+/// parallel by forwarding `[ARGS]` to `soteria-rust exec .`. cargo-soteria owns
+/// only `-j`/`--jobs`; every other argument (e.g. `--kani`, `--filter foo`) is
+/// passed through unchanged — so our own option must come *before* the forwarded
+/// arguments.
+#[derive(Parser)]
+#[command(name = "cargo-soteria", disable_help_flag = true)]
+struct RunArgs {
+    /// Number of tests to analyse concurrently (default: CPUs / 4).
+    #[arg(short = 'j', long = "jobs", value_name = "N")]
+    jobs: Option<usize>,
+    /// Arguments forwarded verbatim to `soteria-rust exec .`.
+    #[arg(
+        trailing_var_arg = true,
+        allow_hyphen_values = true,
+        value_name = "ARGS"
+    )]
+    rest: Vec<String>,
+}
+
+/// `cargo soteria setup [--local PATH]`.
+#[derive(Parser)]
+#[command(name = "cargo-soteria setup", disable_help_flag = true)]
+struct SetupArgs {
+    /// Install from an in-progress local soteria build instead of the nightly.
+    #[arg(long, value_name = "PATH")]
+    local: Option<String>,
+}
+
+/// Parse `args` as `T`, supplying `bin` as argv[0] (clap expects the program
+/// name first). Exits with clap's usage message on a parse error.
+fn parse_args<T: Parser>(bin: &str, args: &[String]) -> T {
+    T::parse_from(std::iter::once(bin.to_string()).chain(args.iter().cloned()))
+}
+
 // ── main ──────────────────────────────────────────────────────────────────────
 
 fn main() {
     // When invoked as `cargo soteria [args...]`, argv is:
     //   cargo-soteria soteria [args...]
-    // Strip the "soteria" word that cargo inserts.
-    let args: Vec<String> = env::args().collect();
-    let args: &[String] = if args.len() > 1 && args[1] == "soteria" {
-        &args[2..]
+    // Strip the "soteria" word that cargo inserts. (When nextest invokes us as
+    // its target runner it calls the binary directly, so argv[1] is the runner
+    // flag rather than "soteria" — hence the conditional.)
+    let argv: Vec<String> = env::args().collect();
+    let args: &[String] = if argv.len() > 1 && argv[1] == "soteria" {
+        &argv[2..]
     } else {
-        &args[1..]
+        &argv[1..]
     };
 
-    // Hidden mode: the cargo target runner nextest invokes during its list/run
-    // phases (see src/nextest.rs). Must be handled before the `--help` sweep
-    // below, since the protocol args it receives are not ours to interpret.
-    if args.first().map(|s| s.as_str()) == Some(nextest::RUNNER_FLAG) {
-        nextest::runner(&args[1..]);
+    // `nextest` and its hidden target runner forward raw arguments to
+    // cargo-nextest / the libtest protocol, so they bypass our own parsing.
+    // Handled before the `--help` sweep so those modes render their own help.
+    match args.first().map(|s| s.as_str()) {
+        Some(nextest::RUNNER_FLAG) => nextest::runner(&args[1..]),
+        Some("nextest") => nextest::run(&args[1..]),
+        _ => {}
     }
 
-    // `cargo soteria nextest [args…]` drives cargo-nextest; forward the rest
-    // (including `-h`/`--help`) so nextest renders its own help.
-    if args.first().map(|s| s.as_str()) == Some("nextest") {
-        nextest::run(&args[1..]);
-    }
-
-    // Dispatch subcommands
+    // cargo-soteria has no CLI of its own beyond `-j`: `--help` renders the
+    // analyzer's full option reference, rebranded (see src/help.rs).
     if args.iter().any(|a| a == "-h" || a == "--help") {
         help::print_help();
         return;
     }
 
-    if args.first().map(|s| s.as_str()) == Some("setup") {
-        let local_path = args
-            .windows(2)
-            .find(|w| w[0] == "--local")
-            .map(|w| w[1].as_str());
-        cmd_setup(local_path);
-        return;
-    }
-
-    if args.first().map(|s| s.as_str()) == Some("unsetup") {
-        cmd_unsetup();
-        return;
-    }
-
-    // Default path: discover the crate's tests and analyse them in parallel.
-    // The toolchain must be installed first.
-    let pkg = package_dir();
-    let soteria_rust_bin = pkg.join("bin").join("soteria-rust");
-
-    if !soteria_rust_bin.exists() {
-        eprintln!("{} Soteria is not installed.", "✗".red().bold());
-        eprintln!(
-            "  Run {} to download and install it.",
-            "cargo soteria setup".cyan().bold()
-        );
-        process::exit(1);
-    }
-
-    let (jobs, passthrough) = parse_jobs(args);
-    run::run(passthrough, jobs);
-}
-
-/// Pull `-j`/`--jobs` out of the forwarded args; everything else is passed
-/// through to soteria-rust unchanged. Accepts `-j N`, `-jN`, `--jobs N`, and
-/// `--jobs=N`.
-fn parse_jobs(args: &[String]) -> (usize, Vec<String>) {
-    let mut jobs = run::default_jobs();
-    let mut rest = Vec::new();
-    let mut i = 0;
-    let parse = |a: &str, v: &str| -> usize {
-        v.parse::<usize>()
-            .unwrap_or_else(|_| fail(&format!("{a} requires a positive integer argument")))
-            .max(1)
-    };
-    while i < args.len() {
-        let a = &args[i];
-        if a == "-j" || a == "--jobs" {
-            let v = args
-                .get(i + 1)
-                .unwrap_or_else(|| fail(&format!("{a} requires a positive integer argument")));
-            jobs = parse(a, v);
-            i += 2;
-        } else if let Some(v) = a.strip_prefix("--jobs=") {
-            jobs = parse("--jobs", v);
-            i += 1;
-        } else if a.len() > 2 && a.starts_with("-j") {
-            jobs = parse("-j", &a[2..]);
-            i += 1;
-        } else {
-            rest.push(a.clone());
-            i += 1;
+    match args.first().map(|s| s.as_str()) {
+        Some("setup") => {
+            let a: SetupArgs = parse_args("cargo soteria setup", &args[1..]);
+            cmd_setup(a.local.as_deref());
+        }
+        Some("unsetup") => cmd_unsetup(),
+        // Default path: discover the crate's tests and analyse them in parallel.
+        // The toolchain must be installed first.
+        _ => {
+            if !package_dir().join("bin").join("soteria-rust").exists() {
+                eprintln!("{} Soteria is not installed.", "✗".red().bold());
+                eprintln!(
+                    "  Run {} to download and install it.",
+                    "cargo soteria setup".cyan().bold()
+                );
+                process::exit(1);
+            }
+            let a: RunArgs = parse_args("cargo soteria", args);
+            let jobs = a.jobs.map(|j| j.max(1)).unwrap_or_else(run::default_jobs);
+            run::run(a.rest, jobs);
         }
     }
-    (jobs, rest)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn run_args(args: &[&str]) -> RunArgs {
+        let owned: Vec<String> = args.iter().map(|s| s.to_string()).collect();
+        parse_args("cargo soteria", &owned)
+    }
+
+    #[test]
+    fn jobs_accepts_every_form() {
+        // The attached short form `-j4` is intentionally unsupported: a
+        // `trailing_var_arg` + `allow_hyphen_values` passthrough positional
+        // greedily claims it. The spaced/`=` forms all work.
+        for form in [&["-j", "4"][..], &["--jobs", "4"], &["--jobs=4"]] {
+            assert_eq!(run_args(form).jobs, Some(4), "form: {form:?}");
+        }
+    }
+
+    #[test]
+    fn no_args_is_empty_passthrough() {
+        let a = run_args(&[]);
+        assert_eq!(a.jobs, None);
+        assert!(a.rest.is_empty());
+    }
+
+    #[test]
+    fn unknown_flags_pass_through_to_soteria_rust() {
+        // Bare passthrough: hyphenated soteria-rust flags land in `rest`, not an
+        // "unexpected argument" error.
+        let a = run_args(&["--kani", "--filter", "foo"]);
+        assert_eq!(a.jobs, None);
+        assert_eq!(a.rest, vec!["--kani", "--filter", "foo"]);
+    }
+
+    #[test]
+    fn jobs_then_passthrough() {
+        // Our own option must precede the forwarded args (trailing_var_arg).
+        let a = run_args(&["-j", "2", "--kani"]);
+        assert_eq!(a.jobs, Some(2));
+        assert_eq!(a.rest, vec!["--kani"]);
+    }
+
+    #[test]
+    fn setup_local_is_optional() {
+        let none: SetupArgs = parse_args("cargo soteria setup", &[]);
+        assert_eq!(none.local, None);
+        let some: SetupArgs = parse_args("cargo soteria setup", &["--local".into(), "/p".into()]);
+        assert_eq!(some.local.as_deref(), Some("/p"));
+    }
 }
