@@ -25,6 +25,15 @@ name=$(printf '%s' "$filter" | tr -d '^$\\')
 
 case "$sub" in
     compile)
+        # Simulate a crate that fails to compile: the real soteria-rust prints
+        # the rustc diagnostic to *stdout* and only "Compiling… errored" to
+        # stderr, then exits 3. A `soteria-compile-error.txt` in the crate dir
+        # supplies the canned diagnostic (see tests/fixtures/type-error/).
+        if [ -f soteria-compile-error.txt ]; then
+            echo "Compiling... errored" >&2
+            cat soteria-compile-error.txt
+            exit 3
+        fi
         echo "Compiling... done" >&2
         if [ -n "$FAKE_TEST_LIST" ]; then
             printf '%s\n' "$FAKE_TEST_LIST"

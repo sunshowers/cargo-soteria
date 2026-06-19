@@ -258,6 +258,52 @@ fn parallel_classifies_and_survives_crashes() {
     fs::remove_dir_all(&home).ok();
 }
 
+/// When the crate fails to compile, `soteria-rust compile` aborts before it can
+/// list any tests, printing the rustc diagnostic to *stdout* and exiting 3. The
+/// runner must surface that full diagnostic — not just its own terse "discovery
+/// failed" line — so the user sees the real error.
+///
+/// Driven by the fake soteria-rust against the `type-error` fixture (whose
+/// `soteria-compile-error.txt` supplies the canned diagnostic), and checked
+/// against the committed `expected-stderr.txt` snapshot. Regenerate the snapshot
+/// with `UPDATE_SNAPSHOTS=1 cargo test --test integration type_error`.
+#[test]
+fn type_error_is_propagated() {
+    let home = fresh_soteria_home();
+    install_fake_soteria(&home);
+
+    let crate_dir = copy_fixture_to_temp("type-error");
+    let out = Command::new(cargo_soteria_bin())
+        .current_dir(&crate_dir)
+        .env("SOTERIA_HOME", &home)
+        .env("NO_COLOR", "1")
+        .output()
+        .expect("run cargo-soteria on the type-error fixture");
+
+    // Discovery failed → exit 1 (the `fail()` path), nothing on stdout.
+    assert_eq!(out.status.code(), Some(1), "expected discovery to fail");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(stdout.trim().is_empty(), "unexpected stdout:\n{stdout}");
+
+    let actual = String::from_utf8_lossy(&out.stderr);
+    let snapshot = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures/type-error/expected-stderr.txt");
+    if std::env::var_os("UPDATE_SNAPSHOTS").is_some() {
+        fs::write(&snapshot, actual.as_bytes()).expect("write snapshot");
+    } else {
+        let expected = fs::read_to_string(&snapshot).expect("read snapshot");
+        assert_eq!(
+            actual,
+            expected,
+            "stderr did not match snapshot {}\n--- actual ---\n{actual}",
+            snapshot.display()
+        );
+    }
+
+    fs::remove_dir_all(&home).ok();
+    fs::remove_dir_all(&crate_dir).ok();
+}
+
 // ── nextest custom-runner protocol (no network, no real soteria) ──────────────
 //
 // `cargo soteria nextest` injects this binary as cargo's target runner; nextest

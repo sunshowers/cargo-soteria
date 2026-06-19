@@ -46,7 +46,11 @@ pub enum DiscoverError {
     /// `soteria-rust` could not be spawned.
     Spawn(std::io::Error),
     /// Discovery ran but exited non-zero.
-    Failed { code: Option<i32>, stderr: String },
+    Failed {
+        code: Option<i32>,
+        stdout: String,
+        stderr: String,
+    },
     /// Discovery exited 0 but stdout held no parseable test list.
     Unparseable { stdout: String, stderr: String },
 }
@@ -55,11 +59,24 @@ impl DiscoverError {
     pub fn message(&self) -> String {
         match self {
             DiscoverError::Spawn(e) => format!("Failed to run soteria-rust: {e}"),
-            DiscoverError::Failed { code, stderr } => format!(
-                "Test discovery failed (exit {}).\n{}",
-                code.unwrap_or(-1),
-                stderr.trim(),
-            ),
+            DiscoverError::Failed {
+                code,
+                stdout,
+                stderr,
+            } => {
+                // The compiler diagnostic soteria-rust emits (e.g. an E0308 type
+                // error) lands on *stdout*; only the terse "Compiling… errored"
+                // progress goes to stderr. Surface both so the user sees the
+                // real error, not just our exit code.
+                let mut msg = format!("Test discovery failed (exit {}).", code.unwrap_or(-1));
+                for stream in [stderr.trim(), stdout.trim()] {
+                    if !stream.is_empty() {
+                        msg.push('\n');
+                        msg.push_str(stream);
+                    }
+                }
+                msg
+            }
             DiscoverError::Unparseable { stdout, stderr } => format!(
                 "Could not parse the test list from `soteria-rust compile --list-tests`.\n  stdout: {}\n  stderr: {}",
                 stdout.trim(),
@@ -102,6 +119,7 @@ pub fn discover_tests(
     if !output.status.success() {
         return Err(DiscoverError::Failed {
             code: output.status.code(),
+            stdout: stdout.into_owned(),
             stderr,
         });
     }
