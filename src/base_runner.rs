@@ -352,8 +352,18 @@ fn run_one(
     }
 
     let mut output = String::new();
-    let _ = file.seek(SeekFrom::Start(0));
-    let _ = file.read_to_string(&mut output);
+    // A read failure here is very unlikely (a local temp file we just wrote),
+    // but if it happens, make it visible rather than passing empty output to
+    // `classify`. (Otherwise, we would misread an exit-0 pass as "no test
+    // matched filter" or drop a failing test's diagnostic.)
+    if let Err(e) = file
+        .seek(SeekFrom::Start(0))
+        .and_then(|_| file.read_to_string(&mut output))
+    {
+        output.push_str(&format!(
+            "\n[cargo-soteria: could not read captured output: {e}]"
+        ));
+    }
 
     match status {
         Ok(st) => classify(st.code(), st.signal(), &output, interrupted),
